@@ -11,3 +11,4 @@ web/tsconfig.tsbuildinfo
 build/
 web/test-results/
 web/playwright-report/
+.local/

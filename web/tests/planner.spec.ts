@@ -33,6 +33,11 @@ test.beforeEach(async ({ page }) => {
   });
   await page.route('**/api/places/search?**', (route) => route.fulfill({ json: { results: [] } }));
   await page.route('**/api/routes/analyze', (route) => route.fulfill({ json: response }));
+  // Expose the actual map only in the test-served module, never in production.
+  await page.route('**/src/map/createMap.ts*', async (route) => {
+    const source = await route.fetch();
+    await route.fulfill({ response: source, body: (await source.text()).replace('return map;', 'globalThis.__testMap = map; return map;') });
+  });
   await page.goto('/');
   await expect(page.locator('.maplibregl-canvas')).toBeVisible();
 });
@@ -110,6 +115,47 @@ test('leave now, map picking and lamp toggle remain usable', async ({ page }) =>
   await expect(page.locator('#lamp-toggle')).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('mapped lamps are discoverable without scrolling and render real returned points', async ({ page }, testInfo) => {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const toggle = page.locator('#lamp-toggle');
+  await expect(toggle).toBeInViewport();
+  await toggle.click();
+  await expect(page.locator('#lamp-status')).toContainText('Compare routes');
+  const streetLamps = { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [77.611, 12.91] } },
+  ] };
+  await page.route('**/api/routes/analyze', (route) => route.fulfill({ json: { ...response, routes: [{ ...routes[0], streetLamps }] } }));
+  await fillTrip(page);
+  await page.locator('#submit-button').click();
+  await expect(page.locator('#lamp-status')).toContainText('Showing mapped lamps');
+  await expect.poll(() => page.evaluate(() => (window as any).__testMap?.getLayoutProperty('lamps-circles', 'visibility'))).toBe('visible');
+  expect(await page.evaluate(async () => (await (window as any).__testMap.getSource('lamps').getData()).features.length)).toBe(1);
+  await toggle.click();
+  await expect.poll(() => page.evaluate(() => (window as any).__testMap.getLayoutProperty('lamps-circles', 'visibility'))).toBe('none');
+  await toggle.click();
+  await page.screenshot({ path: testInfo.outputPath('mapped-lamps.png'), fullPage: true });
+});
+
+test('mapped lamps explain empty data instead of suggesting unlit streets', async ({ page }) => {
+  await page.locator('#lamp-toggle').click();
+  await fillTrip(page);
+  await page.locator('#submit-button').click();
+  await expect(page.locator('#lamp-status')).toContainText('No mapped lamp points were returned');
+  await expect(page.locator('#lamp-status')).toContainText('does not mean the streets are unlit');
+});
+
+test('blank addresses are rejected without sending a route request', async ({ page }) => {
+  let requests = 0;
+  page.on('request', (request) => { if (request.url().endsWith('/api/routes/analyze')) requests++; });
+  await page.locator('#start').fill('   ');
+  await page.locator('#destination').fill('Marathahalli');
+  await page.locator('#submit-button').click();
+  await expect(page.locator('#map-error')).toContainText('Spaces alone are not an address');
+  await expect(page.locator('#start')).toBeFocused();
+  expect(requests).toBe(0);
+  await expect(page.locator('#submit-button')).toBeEnabled();
+});
+
 test('provider errors are readable and allow retry; empty results do not replace a valid trip', async ({ page }) => {
   await fillTrip(page);
   await page.route('**/api/routes/analyze', (route) => route.fulfill({ status: 503, json: { detail: 'Routing provider temporarily unavailable' } }));
@@ -163,6 +209,43 @@ test('GPS watches stop on permission error and route changes', async ({ page }) 
   await page.getByRole('button', { name: 'Select route 2' }).click();
   expect(await page.evaluate(() => (window as any).__cleared)).toEqual([42, 42]);
   await expect(page.getByRole('button', { name: 'Start navigation', exact: true })).toBeEnabled();
+});
+
+test('navigation waits for a slow map and discards GPS updates after stopping', async ({ page }) => {
+  let releaseStyle!: () => void;
+  const styleGate = new Promise<void>((resolve) => { releaseStyle = resolve; });
+  await page.route('https://tiles.openfreemap.org/styles/liberty', async (route) => {
+    await styleGate;
+    await route.fulfill({ json: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#101923' } }] } });
+  });
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      (window as any).__gpsCallbacks = [];
+      (window as any).__cleared = [];
+      Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+        watchPosition: (success: Function) => (window as any).__gpsCallbacks.push(success),
+        clearWatch: (id: number) => (window as any).__cleared.push(id),
+      } });
+    });
+    await fillTrip(page);
+    await page.locator('#submit-button').click();
+    await page.getByRole('button', { name: 'Start navigation', exact: true }).click();
+    await page.evaluate(() => (window as any).__gpsCallbacks[0]({ coords: { latitude: 12.91, longitude: 77.61, accuracy: 10, heading: null } }));
+    await expect(page.locator('#navigation-status')).toContainText('Waiting for GPS');
+    await page.getByRole('button', { name: 'Stop navigation', exact: true }).click();
+    releaseStyle();
+    await expect.poll(() => page.evaluate(() => !!(window as any).__testMap.getLayer('route-lines'))).toBe(true);
+    expect(await page.evaluate(() => !!(window as any).__testMap.getLayer('navigation-remaining-line'))).toBe(false);
+    await page.getByRole('button', { name: 'Start navigation', exact: true }).click();
+    await page.evaluate(() => (window as any).__gpsCallbacks[0]({ coords: { latitude: 12.91, longitude: 77.61, accuracy: 10, heading: null } }));
+    expect(await page.evaluate(() => !!(window as any).__testMap.getLayer('navigation-remaining-line'))).toBe(false);
+    await page.evaluate(() => (window as any).__gpsCallbacks[1]({ coords: { latitude: 12.91, longitude: 77.61, accuracy: 10, heading: null } }));
+    await expect(page.locator('#navigation-distance')).not.toHaveText('—');
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    expect(await page.evaluate(() => (window as any).__cleared)).toEqual([1, 2]);
+    await expect(page.getByRole('button', { name: 'Start navigation', exact: true })).toBeEnabled();
+  } finally { releaseStyle(); }
 });
 
 test('missing mapped signals show unknown instead of invented scores', async ({ page }) => {

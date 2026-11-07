@@ -58,7 +58,10 @@ select:focus, .datetime-input:focus, textarea:focus { outline: 2px solid var(--t
 .primary-button:hover { background: var(--teal-dark); }
 .primary-button > span:last-child { font-size: 19px; }
 .quiet-note { color: #a5b4bf; font-size: 10px; line-height: 1.6; margin: 11px 0 0; text-align: center; }
-.map-control { position: absolute; right: 402px; top: 24px; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 11px; font-size: 11px; border: 1px solid #3b4854; border-radius: 7px; background: #111c28f5; }
+.map-tools { margin: 15px 0 18px; padding: 11px; border: 1px solid #3b4854; border-radius: 8px; background: #172631; }
+.map-tools .map-control { position: static; display: flex; align-items: center; gap: 9px; width: 100%; height: 36px; margin: 0; padding: 0; font-size: 13px; border: 0; background: transparent; }
+.map-tools .toggle { margin-left: auto; }
+.map-tools p { margin: 5px 0 0; color: #b6c7d0; font-size: 11px; line-height: 1.6; }
 .lamp-symbol { color: var(--amber); }
 .toggle { width: 24px; height: 14px; border-radius: 10px; position: relative; background: #4c5a65; }
 .toggle::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #e4e9e6; position: absolute; top: 2px; left: 2px; transition: transform .15s; }

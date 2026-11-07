@@ -25,6 +25,16 @@ class AnalyzeRequest(BaseModel):
     preferences: str | None = None
     explain: bool = True
 
+    @model_validator(mode="after")
+    def ensure_coordinates_or_text(self) -> "AnalyzeRequest":
+        for field_name in ("start", "destination"):
+            value = getattr(self, field_name)
+            if isinstance(value, str):
+                if not value.strip():
+                    raise ValueError(f"{field_name} must not be blank")
+                setattr(self, field_name, value.strip())
+        return self
+
 
 class GeoJSONGeometry(BaseModel):
     type: Literal["LineString"] = "LineString"
@@ -77,12 +87,3 @@ class AnalyzeResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
-
-
-@model_validator(mode="after")
-def ensure_coordinates_or_text(request: AnalyzeRequest) -> AnalyzeRequest:
-    for field_name in ("start", "destination"):
-        value = getattr(request, field_name)
-        if isinstance(value, str) and not value.strip():
-            raise ValueError(f"{field_name} must not be blank")
-    return request

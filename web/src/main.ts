@@ -22,6 +22,7 @@ root.innerHTML = `
       <div class="map-label"><span class="map-label-dot"></span> Bengaluru, Karnataka</div>
       <form class="search-card" id="route-form">
         <div class="card-heading"><div><span class="eyebrow">THE CITY DOESN’T STOP AT SUNSET</span><h1>Know more about<br/>the way ahead.</h1><p class="intro-copy">Compare the lights, places and activity along your route. After dark, or any time.</p></div></div>
+        <div class="map-tools"><button class="map-control" id="lamp-toggle" type="button" aria-pressed="false" aria-describedby="lamp-status"><span class="lamp-symbol" aria-hidden="true">✦</span><span>Mapped lamps</span><span class="toggle" aria-hidden="true"></span></button><p id="lamp-status" role="status">Turn on to show mapped lamps along compared routes.</p></div>
         <div class="place-field"><label class="field-label" for="start">FROM</label><div class="input-wrap"><span class="pin origin"></span><input id="start" placeholder="Search for a place or address" autocomplete="off" required /><button class="locate-button" id="locate-button" type="button" title="Use my current location" aria-label="Use my current location">◎</button><button class="map-pick-button" id="pick-start" type="button" title="Choose starting point on map" aria-label="Choose starting point on map">Map</button></div><div class="place-suggestions" id="start-suggestions" role="listbox"></div></div>
         <div class="place-field"><label class="field-label" for="destination">TO</label><div class="input-wrap"><span class="pin destination-pin"></span><input id="destination" placeholder="Search for a place or address" autocomplete="off" required /><button class="map-pick-button" id="pick-destination" type="button" title="Choose destination on map" aria-label="Choose destination on map">Map</button></div><div class="place-suggestions" id="destination-suggestions" role="listbox"></div></div>
         <button class="swap-button" id="swap-places" type="button">⇅ Swap start & destination</button>
@@ -33,7 +34,6 @@ root.innerHTML = `
         <button class="primary-button" id="submit-button" type="submit"><span>Compare routes</span><span aria-hidden="true">↗</span></button>
         <p class="quiet-note">Activity signals help compare routes. This is not a safety guarantee.</p>
       </form>
-      <button class="map-control" id="lamp-toggle" type="button" aria-pressed="false"><span class="lamp-symbol">✦</span><span>Mapped lamps</span><span class="toggle"></span></button>
       <div class="map-pick-banner" id="map-pick-banner" role="status"><span id="map-pick-message">Click on the map to choose a location.</span><button id="cancel-pick" type="button">Cancel</button></div>
       <div class="map-legend"><span class="legend-line"></span><span>Route options</span><span class="legend-lamp"></span><span>Mapped lamps</span></div>
       <section class="results-panel" id="results-panel" aria-live="polite">
@@ -58,10 +58,27 @@ let selectedIndex = 0;
 let lampsVisible = false;
 
 function showRoutesOnMap(routes: RouteResult[], selected: number): void {
+  updateLampStatus();
   whenMapReady(map, () => {
     drawRoutes(map, routes, selected);
     toggleLamps(map, lampsVisible);
   });
+}
+
+function updateLampStatus(): void {
+  const message = document.querySelector<HTMLElement>('#lamp-status')!;
+  if (!lampsVisible) {
+    message.textContent = 'Turn on to show mapped lamps along compared routes.';
+    return;
+  }
+  if (!activeRoutes.length) {
+    message.textContent = 'Lamps are on. Compare routes to load nearby mapped lamp points.';
+    return;
+  }
+  const hasLamps = activeRoutes.some((route) => route.streetLamps.features.length > 0);
+  message.textContent = hasLamps
+    ? 'Showing mapped lamps along the compared routes. Bulb status is unverified.'
+    : 'No mapped lamp points were returned for these routes. This does not mean the streets are unlit.';
 }
 
 // On phones the map is below the form, so bring it into view when it changes.
@@ -74,6 +91,7 @@ let startPin: { lat: number; lon: number } | null = null;
 let destinationPin: { lat: number; lon: number } | null = null;
 const pinMarkers: Marker[] = [];
 let navigationWatchId: number | null = null;
+let navigationSession = 0;
 let navigationMarker: Marker | null = null;
 let navigationFollow = true;
 const suggestionState: Record<'start' | 'destination', { timer: number | undefined; controller: AbortController | null; results: PlaceSuggestion[] }> = {
@@ -298,6 +316,7 @@ document.querySelector('#lamp-toggle')?.addEventListener('click', () => {
   toggleLamps(map, lampsVisible);
   document.querySelector('#lamp-toggle')?.classList.toggle('is-active', lampsVisible);
   document.querySelector('#lamp-toggle')?.setAttribute('aria-pressed', String(lampsVisible));
+  updateLampStatus();
 });
 
 document.querySelector('#about-button')?.addEventListener('click', () => document.querySelector<HTMLDialogElement>('#about-dialog')?.showModal());
@@ -311,10 +330,18 @@ form.addEventListener('submit', async (event) => {
   form.setAttribute('aria-busy', 'true');
   button.innerHTML = '<span class="spinner"></span><span>Finding routes…</span>';
   const journey = {
-    start: document.querySelector<HTMLInputElement>('#start')!.value,
-    destination: document.querySelector<HTMLInputElement>('#destination')!.value,
+    start: document.querySelector<HTMLInputElement>('#start')!.value.trim(),
+    destination: document.querySelector<HTMLInputElement>('#destination')!.value.trim(),
     mode: document.querySelector<HTMLSelectElement>('#mode')!.value,
   };
+  if (!journey.start || !journey.destination) {
+    status.textContent = 'Enter a starting point and destination. Spaces alone are not an address.';
+    button.disabled = false;
+    form.setAttribute('aria-busy', 'false');
+    button.innerHTML = '<span>Compare routes</span><span aria-hidden="true">↗</span>';
+    document.querySelector<HTMLInputElement>(journey.start ? '#destination' : '#start')!.focus();
+    return;
+  }
   const departureDate = new Date(departureInput.value);
   if (!departureInput.value || Number.isNaN(departureDate.getTime())) {
     status.textContent = 'Choose a valid departure date and time.';
@@ -325,8 +352,8 @@ form.addEventListener('submit', async (event) => {
   }
   try {
     const result = await analyze({
-      start: startPin ?? document.querySelector<HTMLInputElement>('#start')!.value,
-      destination: destinationPin ?? document.querySelector<HTMLInputElement>('#destination')!.value,
+      start: startPin ?? journey.start,
+      destination: destinationPin ?? journey.destination,
       mode: document.querySelector<HTMLSelectElement>('#mode')!.value,
       maxRoutes: Number(document.querySelector<HTMLSelectElement>('#route-count')!.value),
       departureTime: departureDate.toISOString(),
@@ -457,7 +484,14 @@ function startNavigation(): void {
     button.textContent = 'Connecting to GPS…';
   }
   status.textContent = 'Allow location access to start live route tracking.';
-  navigationWatchId = navigator.geolocation.watchPosition(onNavigationPosition, (error) => {
+  const session = ++navigationSession;
+  navigationWatchId = navigator.geolocation.watchPosition((position) => {
+    if (session !== navigationSession) return;
+    whenMapReady(map, () => {
+      if (session === navigationSession && navigationWatchId !== null) onNavigationPosition(position);
+    });
+  }, (error) => {
+    if (session !== navigationSession) return;
     stopNavigation();
     status.textContent = error.code === error.PERMISSION_DENIED
       ? 'Location permission denied. Enable it in browser settings to navigate live.'
@@ -496,6 +530,7 @@ function onNavigationPosition(position: GeolocationPosition): void {
 }
 
 function stopNavigation(): void {
+  navigationSession += 1;
   if (navigationWatchId !== null) navigator.geolocation.clearWatch(navigationWatchId);
   navigationWatchId = null;
   navigationMarker?.remove();
@@ -505,7 +540,7 @@ function stopNavigation(): void {
 }
 
 window.addEventListener('pagehide', () => {
-  if (navigationWatchId !== null) navigator.geolocation.clearWatch(navigationWatchId);
+  if (navigationWatchId !== null) stopNavigation();
 });
 
 function formatDuration(seconds: number): string {

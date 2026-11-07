@@ -74,7 +74,7 @@ function lineLengthMeters(coordinates: [number, number][]): number {
 
 export function clearRemainingRoute(map: Map): void {
   const source = map.getSource('navigation-remaining') as GeoJSONSource | undefined;
-  source?.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } });
+  source?.setData({ type: 'FeatureCollection', features: [] });
 }
 
 function drawCombined(map: Map, name: string, features: GeoJSON.Feature[]): void {

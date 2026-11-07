@@ -12,3 +12,4 @@ tests/
 web/tests/
 web/test-results/
 web/playwright-report/
+.local/
