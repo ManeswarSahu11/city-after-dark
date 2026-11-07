@@ -24,6 +24,27 @@ export function createMap(container: HTMLElement): Map {
     attributionControl: {},
     maxZoom: 19,
   });
+  // Recolour the provider's basemap, keeping its labels, sources and attribution.
+  // Route and POI layers are added later and retain their own high-contrast colours.
+  map.on('style.load', () => {
+    for (const layer of map.getStyle().layers ?? []) {
+      const id = layer.id.toLowerCase();
+      if (layer.type === 'background') map.setPaintProperty(layer.id, 'background-color', '#101923');
+      if (layer.type === 'fill') {
+        const color = /water/.test(id) ? '#0b2636' : /park|grass|wood|forest|landcover/.test(id) ? '#172d2b' : /building/.test(id) ? '#24323e' : '#16212b';
+        map.setPaintProperty(layer.id, 'fill-color', color);
+      }
+      if (layer.type === 'line') {
+        const color = /water/.test(id) ? '#214357' : /boundary|border/.test(id) ? '#53616e' : /motorway|trunk|primary/.test(id) ? '#716956' : '#354452';
+        map.setPaintProperty(layer.id, 'line-color', color);
+      }
+      if (layer.type === 'symbol' && layer.layout?.['text-field']) {
+        map.setPaintProperty(layer.id, 'text-color', '#b9c8d1');
+        map.setPaintProperty(layer.id, 'text-halo-color', '#101923');
+        map.setPaintProperty(layer.id, 'text-halo-width', 1.2);
+      }
+    }
+  });
   map.once('load', () => readyMaps.add(map));
 
   if (key) {

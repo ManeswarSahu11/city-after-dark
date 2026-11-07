@@ -2,7 +2,7 @@ import { LngLatBounds, type Map, type GeoJSONSource } from 'maplibre-gl';
 import type { RouteResult } from '../api/analyze';
 import { isPhoneLayout } from './createMap';
 
-const colors = ['#087f72', '#d79536', '#477aa5', '#a86545', '#738657'];
+const colors = ['#98d6bd', '#efc079', '#91b9f4', '#d7a0bd', '#acb893'];
 
 function featureCollection(features: GeoJSON.Feature[]): GeoJSON.FeatureCollection {
   return { type: 'FeatureCollection', features };
@@ -20,7 +20,7 @@ export function drawRoutes(map: Map, routes: RouteResult[], selected: number): v
   if (source) source.setData(featureCollection(routeFeatures));
   else {
     map.addSource('routes', { type: 'geojson', data: featureCollection(routeFeatures) });
-    map.addLayer({ id: 'route-casing', type: 'line', source: 'routes', paint: { 'line-color': '#ffffff', 'line-width': ['case', ['get', 'selected'], 11, 0], 'line-opacity': 0.95, 'line-blur': 0.5 } });
+    map.addLayer({ id: 'route-casing', type: 'line', source: 'routes', paint: { 'line-color': '#0c1820', 'line-width': ['case', ['get', 'selected'], 11, 0], 'line-opacity': 0.95, 'line-blur': 0.5 } });
     map.addLayer({ id: 'route-lines', type: 'line', source: 'routes', paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['get', 'selected'], 7, 3.5], 'line-opacity': ['case', ['get', 'selected'], 1, 0.72] } });
   }
   drawCombined(map, 'pois', routes.flatMap((route) => route.poiFeatures.features));
@@ -53,7 +53,7 @@ export function showRemainingRoute(map: Map, route: RouteResult, location: [numb
   if (source) source.setData(feature);
   else {
     map.addSource('navigation-remaining', { type: 'geojson', data: feature });
-    map.addLayer({ id: 'navigation-remaining-line', type: 'line', source: 'navigation-remaining', paint: { 'line-color': '#075e56', 'line-width': 8, 'line-opacity': 1, 'line-dasharray': [1.5, 1] } });
+    map.addLayer({ id: 'navigation-remaining-line', type: 'line', source: 'navigation-remaining', paint: { 'line-color': '#ecf9dc', 'line-width': 5, 'line-opacity': 1, 'line-dasharray': [1.5, 1] } });
   }
   return lineLengthMeters(remaining);
 }
@@ -94,7 +94,12 @@ function fitRoute(map: Map, route: RouteResult): void {
   const coordinates = route.geometry.coordinates;
   const bounds = coordinates.reduce((result, coordinate) => result.extend(coordinate), new LngLatBounds(coordinates[0], coordinates[0]));
   // On wider screens the results panel covers the right of the map; on phones it sits below the map instead.
-  const padding = isPhoneLayout() ? 36 : { top: 56, bottom: 56, left: 56, right: 440 };
+  const mapBounds = map.getContainer().getBoundingClientRect();
+  const search = document.querySelector('.search-card')?.getBoundingClientRect();
+  const results = document.querySelector('.results-panel')?.getBoundingClientRect();
+  const leftOverlap = search && search.right > mapBounds.left && search.left >= mapBounds.left ? search.right - mapBounds.left + 24 : 36;
+  const rightOverlap = results && results.left < mapBounds.right && results.top < mapBounds.bottom ? mapBounds.right - results.left + 24 : 36;
+  const padding = isPhoneLayout() ? 36 : { top: 70, bottom: 65, left: leftOverlap, right: rightOverlap };
   map.fitBounds(bounds, { padding, maxZoom: 15, duration: 700 });
 }
 

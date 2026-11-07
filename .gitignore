@@ -9,3 +9,5 @@ web/dist/
 web/tsconfig.tsbuildinfo
 *.Zone.Identifier
 build/
+web/test-results/
+web/playwright-report/

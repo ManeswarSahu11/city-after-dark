@@ -4,9 +4,22 @@ Created and maintained by **Maneswar Sahu** (<maneswar.sahu2005@gmail.com>).
 
 Copyright (c) 2026 Maneswar Sahu. Released under the [MIT License](LICENSE). Third-party data retains its own attribution and licensing.
 
-A low-scale, evidence-aware multi-route comparison demo for Bengaluru-style trips. TomTom supplies geocoding, route geometry, travel-time summaries, along-route places and incidents. OpenStreetMap street-lamp nodes provide a mapped-lighting signal. NVIDIA Nemotron models, served through **Nebius Token Factory**, turn free-text preferences into ranking adjustments and landmark searches, and narrate the comparison between routes; all provider failures degrade gracefully (the app still returns routes and metrics if an LLM call fails or times out).
+A route comparison and navigation app for Bengaluru-style trips, with a night-friendly interface that works for daytime journeys too. TomTom supplies geocoding, route geometry, travel-time summaries, along-route places and incidents. OpenStreetMap street-lamp nodes provide a mapped-lighting signal. NVIDIA Nemotron models, served through **Nebius Token Factory**, turn free-text preferences into ranking adjustments and landmark searches, and narrate the comparison between routes; all provider failures degrade gracefully (the app still returns routes and metrics if an LLM call fails or times out).
 
 **This is not crime data, a safety service, or a safety guarantee.** A mapped OpenStreetMap lamp does not confirm that it works, and missing lamp data does not establish darkness.
+
+## Motivation
+
+[YouGov's October 2020 survey](https://yougov.com/articles/32860-most-urban-indian-women-feel-unsafe-while-walking-) reported that 52% of urban Indian women always or often felt unsafe walking alone at night; 18% felt unsafe walking alone during the day. The online survey involved around 700 women in India and was published on 4 November 2020. These historical perceptions motivate clearer journey context; they are not crime rates, current local risk estimates or inputs to route scores.
+
+## Interface and journey tools
+
+- Dark panels and a coordinated dark basemap, with mint routes and amber mapped lamps.
+- Driving, walking and cycling; typed place search, current location and map picking.
+- Editable preferences with one-tap prompts, swapped endpoints and a local-time “Leave now” shortcut.
+- Route time comparisons, evidence coverage, explicit unknowns and expandable provider limitations.
+- Foreground GPS route following and a copyable trip summary, with manual-copy fallback. Summaries do not share live location; sharing remains your choice.
+- Phone, tablet and desktop layouts. No account or persistent trip history is required.
 
 ## Nebius / NVIDIA usage
 
@@ -118,4 +131,17 @@ Start and destination can each be a place string or `{ "lat": ..., "lon": ... }`
 ```bash
 pytest
 cd web && npm run build
+npm test
 ```
+
+Browser tests use installed Google Chrome locally and Playwright Chromium when `CI` is set (install it with `npx playwright install --with-deps chromium` in your CI environment). They cover desktop, tablet and phone sizes with deterministic routing, map, GPS and clipboard fixtures. They do not verify live provider coverage or consume API quotas. Run all checks before deployment.
+
+## Deployment checklist
+
+1. Connect this repository to Render as a Blueprint using `render.yaml`. The Dockerfile builds the frontend and serves the complete application through FastAPI; a separate frontend host is unnecessary.
+2. Set `TOMTOM_API_KEY` for live routing and place search. `NEBIUS_API_KEY` is optional for preference interpretation and explanations. Set `VITE_TOMTOM_API_KEY` at build time to use the TomTom basemap; without it the map uses OpenFreeMap.
+3. Keep provider keys in the host's secret environment settings. The `VITE_` basemap key is intentionally browser-visible; restrict its allowed domains and usage in your TomTom account. Backend keys must never use a `VITE_` prefix.
+4. Render checks `/api/health`. After deployment, verify the homepage, place suggestions, a daytime and nighttime route request, and location permission handling over HTTPS. Health confirms the server is running, not that provider keys or quotas are valid.
+5. GPS and clipboard access require HTTPS (or localhost). Configure `CORS_ORIGINS` only if hosting the frontend on a separate origin. If build-time `VITE_` settings change, rebuild the service.
+
+Docker is not required for local development. To validate the same production serving path locally, build `web/`, start `uvicorn app.main:app`, and open `http://127.0.0.1:8000`.

@@ -9,3 +9,6 @@ web/node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
 tests/
+web/tests/
+web/test-results/
+web/playwright-report/

@@ -3,6 +3,7 @@ services:
     name: city-after-dark
     runtime: docker
     plan: free
+    healthCheckPath: /api/health
     envVars:
       - key: TOMTOM_API_KEY
         sync: false
