@@ -23,18 +23,25 @@ A route comparison and navigation app for Bengaluru-style trips, with a night-fr
 
 ## Nebius / NVIDIA usage
 
+```mermaid
+flowchart TD
+    Input["Trip details and optional free-text preferences"]
+    Input --> Routing["TomTom: geocode places and request mode-specific routes"]
+    Input --> Intent["Optional Nemotron Nano: interpret preferences"]
+    Intent --> Parsed["Validate and bound multipliers; extract landmark terms"]
+    Intent -. "Unavailable or failed" .-> Defaults["Default weights and keyword landmark extraction"]
+    Routing --> Engine["Deterministic route-analysis pipeline"]
+    Parsed --> Engine
+    Defaults --> Engine
+    TomTom["TomTom: nearby places, landmarks and incidents"] --> Engine
+    OSM["OpenStreetMap: mapped street-lamp evidence"] --> Engine
+    Engine --> Metrics["Ranked routes, activity scores, evidence coverage and limitations"]
+    Metrics --> Explain["Optional Nemotron Super: explain computed metrics"]
+    Metrics --> UI["Route comparison and map"]
+    Explain --> UI
 ```
-"walking home late, police and well-lit streets matter, happy to pass a lake"
-        │
-        ▼  Nemotron-3-Nano (Token Factory)          runs in parallel with geocoding/routing
-{multipliers: {police: 1.5, light: 1.5}, priorities: [police, light], landmarks: ["lake"]}
-        │
-        ▼  deterministic pipeline (TomTom + OSM)      landmarks → along-route searches / via-routes
-routes + Night Activity Score + breakdown            multipliers → bounded rank-weight rescaling
-        │
-        ▼  Nemotron-3-Super (Token Factory)
-one grounded explanation per route, citing only the metrics above
-```
+
+Preference interpretation overlaps geocoding and initial routing. AI output adjusts preferences and explanations; TomTom supplies route geometry. Routes remain available if an AI call fails.
 
 - **Provider**: [Nebius Token Factory](https://tokenfactory.nebius.com) (OpenAI-compatible `chat/completions`, JSON mode), see [`app/clients/nebius.py`](app/clients/nebius.py). Nemotron 3 reasons by default; we send `chat_template_kwargs: {"enable_thinking": false}` because for these short structured tasks reasoning consumed the whole token budget and returned no content (~37 s → ~2.7 s with it off).
 - **Intent agent** — `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` ([`app/agents/agent2a_intent.py`](app/agents/agent2a_intent.py)) maps free text to 0.5–1.5× multipliers on nine named ranking factors (police, lighting, open shops, hospitals, residential, night activity, delay, closures, duration) plus up to three landmark search terms. Output is validated and clamped server-side; unknown factors are dropped. Falls back to default weights and keyword extraction if the call fails.
@@ -42,6 +49,35 @@ one grounded explanation per route, citing only the metrics above
 - The LLMs never choose geometry or touch TomTom/OSM data directly; the UI labels which model produced what.
 - **Where Token Factory sped up the build** — no GPUs to provision and no model hosting. One API key and one OpenAI-compatible endpoint serve both Nemotron sizes, so the whole Nebius client is ~40 lines of `httpx` with no SDK. Comparing Nano and Super on the same prompt was a one-string change, which is how we sized each model to its task and found the reasoning switch above.
 - **Other Nebius services** — none. The app runs in a Docker container on Render and calls Token Factory over HTTPS; the API key is a server-side environment variable.
+
+## Route-analysis flowchart
+
+```mermaid
+flowchart TD
+    Start(["Plan a journey"])
+    Start --> Request["Start, destination, travel mode, departure time and preferences"]
+    Request --> Validate{"Valid request?"}
+    Validate -- "No" --> Error["Return a readable validation error"]
+    Validate -- "Yes" --> Candidates["Request TomTom routes for walking, cycling or driving"]
+    Candidates --> Unique["Validate geometry and remove duplicate routes"]
+    Unique --> Landmarks["Search requested landmarks; consider bounded waypoint alternatives"]
+    Landmarks --> Evidence["Collect mapped lamps, nearby amenities and incident evidence"]
+    Evidence --> Compute["Compute lighting and activity signals, passing-time opening hours and unknowns"]
+    Compute --> Time{"Departure between 20:00 and 06:00?"}
+    Time -- "Yes" --> Night["Apply mode-specific nighttime ranking weights"]
+    Time -- "No" --> Day["Apply shared daytime ranking weights"]
+    Night --> Rank["Apply preference adjustments and landmark bonus; rank and limit routes"]
+    Day --> Rank
+    Rank --> Explain{"AI explanations enabled and available?"}
+    Explain -- "Yes" --> Narrate["Generate explanations from computed route metrics"]
+    Explain -- "No" --> Response["Return routes, scores, known evidence and limitations"]
+    Narrate --> Response
+    Response --> Choose["Compare alternatives and select a route"]
+    Choose --> Navigate["Optional foreground GPS navigation or copied trip summary"]
+    Navigate --> Finish(["Stop tracking when navigation ends"])
+```
+
+Nighttime is determined in the requested timezone: 20:00 inclusive to 06:00 exclusive. Unavailable evidence stays unknown; the pipeline does not infer crime risk or verify that mapped lamps work. Provider failures can reduce the available evidence; failure to obtain valid routes returns an error.
 
 ## Requirements
 
